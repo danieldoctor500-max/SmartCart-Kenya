@@ -1,5 +1,5 @@
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import request from "supertest";
 import {
   afterAll,
@@ -15,15 +15,43 @@ import { prisma } from "../src/config/database.js";
 const password = "SmartCart-Test-Password-2026!";
 const email = `auth-test-${randomUUID()}@example.com`;
 const trustedOrigin = "http://localhost:5173";
+const sessionCookieName = "smartcart_session";
+
+function getSessionToken(setCookieHeaders: string[] | undefined): string {
+  if (!setCookieHeaders) {
+    throw new Error("Login response did not contain a session cookie.");
+  }
+
+  const cookiePrefix = `${sessionCookieName}=`;
+  const cookieHeader = setCookieHeaders.find((header) =>
+    header.startsWith(cookiePrefix),
+  );
+
+  if (!cookieHeader) {
+    throw new Error("Expected session cookie was not found.");
+  }
+
+  const rawValue = cookieHeader
+    .slice(cookiePrefix.length)
+    .split(";")[0];
+
+  if (!rawValue) {
+    throw new Error("Session cookie was empty.");
+  }
+
+  return decodeURIComponent(rawValue);
+}
+
+function hashSessionToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
 
 describe("Authentication API integration tests", () => {
   beforeAll(async () => {
-    // Confirm that the test database is reachable before testing.
     await prisma.$queryRaw`SELECT 1`;
   });
 
   afterAll(async () => {
-    // Delete only the uniquely identified test account.
     await prisma.user.deleteMany({
       where: { email },
     });
@@ -177,4 +205,109 @@ describe("Authentication API integration tests", () => {
     expect(response.status).toBe(403);
     expect(response.body.success).toBe(false);
   });
+
+  it("rejects an expired session and deletes it", async () => {
+    const loginResponse = await request(app)
+      .post("/api/v1/auth/login")
+      .set("Origin", trustedOrigin)
+      .send({ email, password });
+
+    expect(loginResponse.status).toBe(200);
+
+    const token = getSessionToken(loginResponse.headers["set-cookie"]);
+    const tokenHash = hashSessionToken(token);
+
+    const session = await prisma.session.findUnique({
+      where: { tokenHash },
+    });
+
+    expect(session).not.toBeNull();
+
+    await prisma.session.update({
+      where: { id: session!.id },
+      data: { expiresAt: new Date(Date.now() - 60_000) },
+    });
+
+    const response = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Cookie", `${sessionCookieName}=${token}`);
+
+    expect(response.status).toBe(401);
+
+    const remainingSession = await prisma.session.findUnique({
+      where: { id: session!.id },
+    });
+
+    expect(remainingSession).toBeNull();
+  });
+
+  it.each(["SUSPENDED", "DEACTIVATED"] as const)(
+    "rejects an existing session for a %s account and deletes it",
+    async (status) => {
+      const loginResponse = await request(app)
+        .post("/api/v1/auth/login")
+        .set("Origin", trustedOrigin)
+        .send({ email, password });
+
+      expect(loginResponse.status).toBe(200);
+
+      const token = getSessionToken(loginResponse.headers["set-cookie"]);
+      const tokenHash = hashSessionToken(token);
+
+      const session = await prisma.session.findUnique({
+        where: { tokenHash },
+      });
+
+      expect(session).not.toBeNull();
+
+      try {
+        await prisma.user.update({
+          where: { email },
+          data: { status },
+        });
+
+        const response = await request(app)
+          .get("/api/v1/auth/me")
+          .set("Cookie", `${sessionCookieName}=${token}`);
+
+        expect(response.status).toBe(401);
+
+        const remainingSession = await prisma.session.findUnique({
+          where: { id: session!.id },
+        });
+
+        expect(remainingSession).toBeNull();
+      } finally {
+        await prisma.user.update({
+          where: { email },
+          data: { status: "ACTIVE" },
+        });
+      }
+    },
+  );
+
+  it.each(["SUSPENDED", "DEACTIVATED"] as const)(
+    "rejects login for a %s account",
+    async (status) => {
+      try {
+        await prisma.user.update({
+          where: { email },
+          data: { status },
+        });
+
+        const response = await request(app)
+          .post("/api/v1/auth/login")
+          .set("Origin", trustedOrigin)
+          .send({ email, password });
+
+        expect(response.status).toBe(401);
+        expect(response.body.success).toBe(false);
+      } finally {
+        await prisma.user.update({
+          where: { email },
+          data: { status: "ACTIVE" },
+        });
+      }
+    },
+  );
 });
