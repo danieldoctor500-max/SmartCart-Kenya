@@ -9,6 +9,7 @@ import {
   register,
 } from "./auth.controller.js";
 import { requireAuth } from "./auth.middleware.js";
+import { requireTrustedOrigin } from "./origin.middleware.js";
 
 const authRouter = Router();
 
@@ -34,10 +35,22 @@ const loginLimiter = rateLimit({
   },
 });
 
-authRouter.post("/register", registrationLimiter, register);
-authRouter.post("/login", loginLimiter, login);
+authRouter.post(
+  "/register",
+  requireTrustedOrigin,
+  registrationLimiter,
+  register,
+);
+
+authRouter.post(
+  "/login",
+  requireTrustedOrigin,
+  loginLimiter,
+  login,
+);
 
 authRouter.get("/me", requireAuth, currentUser);
-authRouter.post("/logout", logout);
+
+authRouter.post("/logout", requireTrustedOrigin, logout);
 
 export default authRouter;

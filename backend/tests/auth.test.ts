@@ -14,6 +14,7 @@ import { prisma } from "../src/config/database.js";
 
 const password = "SmartCart-Test-Password-2026!";
 const email = `auth-test-${randomUUID()}@example.com`;
+const trustedOrigin = "http://localhost:5173";
 
 describe("Authentication API integration tests", () => {
   beforeAll(async () => {
@@ -33,6 +34,7 @@ describe("Authentication API integration tests", () => {
   it("registers a customer without exposing the password hash", async () => {
     const response = await request(app)
       .post("/api/v1/auth/register")
+      .set("Origin", trustedOrigin)
       .send({
         fullName: "SmartCart Test Customer",
         email,
@@ -61,6 +63,7 @@ describe("Authentication API integration tests", () => {
   it("rejects registration with invalid input", async () => {
     const response = await request(app)
       .post("/api/v1/auth/register")
+      .set("Origin", trustedOrigin)
       .send({
         fullName: "A",
         email: "not-an-email",
@@ -73,6 +76,7 @@ describe("Authentication API integration tests", () => {
   it("rejects duplicate email registration", async () => {
     const response = await request(app)
       .post("/api/v1/auth/register")
+      .set("Origin", trustedOrigin)
       .send({
         fullName: "Duplicate Test Customer",
         email,
@@ -93,6 +97,7 @@ describe("Authentication API integration tests", () => {
 
     const loginResponse = await agent
       .post("/api/v1/auth/login")
+      .set("Origin", trustedOrigin)
       .send({ email, password });
 
     expect(loginResponse.status).toBe(200);
@@ -108,7 +113,9 @@ describe("Authentication API integration tests", () => {
     expect(currentUserResponse.status).toBe(200);
     expect(currentUserResponse.body.data.user.email).toBe(email);
 
-    const logoutResponse = await agent.post("/api/v1/auth/logout");
+    const logoutResponse = await agent
+      .post("/api/v1/auth/logout")
+      .set("Origin", trustedOrigin);
 
     expect(logoutResponse.status).toBe(200);
 
@@ -120,12 +127,54 @@ describe("Authentication API integration tests", () => {
   it("rejects an incorrect password", async () => {
     const response = await request(app)
       .post("/api/v1/auth/login")
+      .set("Origin", trustedOrigin)
       .send({
         email,
         password: "Incorrect-Test-Password-2026!",
       });
 
     expect(response.status).toBe(401);
+    expect(response.body.success).toBe(false);
+  });
+
+  it("rejects login requests without an Origin header", async () => {
+    const response = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email, password });
+
+    expect(response.status).toBe(403);
+    expect(response.body.success).toBe(false);
+  });
+
+  it("rejects login requests from an untrusted origin", async () => {
+    const response = await request(app)
+      .post("/api/v1/auth/login")
+      .set("Origin", "https://untrusted.example")
+      .send({ email, password });
+
+    expect(response.status).toBe(403);
+    expect(response.body.success).toBe(false);
+  });
+
+  it("rejects registration requests from an untrusted origin", async () => {
+    const response = await request(app)
+      .post("/api/v1/auth/register")
+      .set("Origin", "https://untrusted.example")
+      .send({
+        fullName: "Untrusted Test Customer",
+        email: `untrusted-${randomUUID()}@example.com`,
+        password,
+      });
+
+    expect(response.status).toBe(403);
+    expect(response.body.success).toBe(false);
+  });
+
+  it("rejects logout requests without an Origin header", async () => {
+    const response = await request(app)
+      .post("/api/v1/auth/logout");
+
+    expect(response.status).toBe(403);
     expect(response.body.success).toBe(false);
   });
 });
