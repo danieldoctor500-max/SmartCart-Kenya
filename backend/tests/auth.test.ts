@@ -1,4 +1,3 @@
-
 import { createHash, randomUUID } from "node:crypto";
 import request from "supertest";
 import {
@@ -17,13 +16,23 @@ const email = `auth-test-${randomUUID()}@example.com`;
 const trustedOrigin = "http://localhost:5173";
 const sessionCookieName = "smartcart_session";
 
-function getSessionToken(setCookieHeaders: string[] | undefined): string {
-  if (!setCookieHeaders) {
-    throw new Error("Login response did not contain a session cookie.");
+function getSetCookieHeaders(
+  headers: string | string[] | undefined,
+): string[] {
+  if (!headers) {
+    return [];
   }
 
+  return typeof headers === "string" ? [headers] : headers;
+}
+
+function getSessionToken(
+  setCookieHeaders: string | string[] | undefined,
+): string {
+  const headers = getSetCookieHeaders(setCookieHeaders);
   const cookiePrefix = `${sessionCookieName}=`;
-  const cookieHeader = setCookieHeaders.find((header) =>
+
+  const cookieHeader = headers.find((header) =>
     header.startsWith(cookiePrefix),
   );
 
@@ -73,9 +82,11 @@ describe("Authentication API integration tests", () => {
     expect(response.status).toBe(201);
     expect(response.body.success).toBe(true);
     expect(response.body.data.user.email).toBe(email);
+
     expect(response.body.data.user.roles).toContainEqual({
       role: "CUSTOMER",
     });
+
     expect(response.body.data.user).not.toHaveProperty("passwordHash");
 
     const savedUser = await prisma.user.findUnique({
@@ -132,9 +143,24 @@ describe("Authentication API integration tests", () => {
     expect(loginResponse.body.success).toBe(true);
     expect(loginResponse.body.data.user.email).toBe(email);
 
-    const setCookie = loginResponse.headers["set-cookie"];
-    expect(setCookie).toBeDefined();
-    expect(setCookie!.join(";")).toContain("HttpOnly");
+    const setCookie = getSetCookieHeaders(
+      loginResponse.headers["set-cookie"],
+    );
+
+    expect(setCookie.length).toBeGreaterThan(0);
+
+    const sessionCookie = setCookie.find((header) =>
+      header.startsWith(`${sessionCookieName}=`),
+    );
+
+    expect(sessionCookie).toBeDefined();
+    expect(sessionCookie).toContain("HttpOnly");
+    expect(sessionCookie).toContain("SameSite=Lax");
+    expect(sessionCookie).toContain("Path=/");
+
+    if (process.env.NODE_ENV !== "production") {
+      expect(sessionCookie).not.toContain("; Secure");
+    }
 
     const currentUserResponse = await agent.get("/api/v1/auth/me");
 
@@ -214,7 +240,10 @@ describe("Authentication API integration tests", () => {
 
     expect(loginResponse.status).toBe(200);
 
-    const token = getSessionToken(loginResponse.headers["set-cookie"]);
+    const token = getSessionToken(
+      loginResponse.headers["set-cookie"],
+    );
+
     const tokenHash = hashSessionToken(token);
 
     const session = await prisma.session.findUnique({
@@ -251,7 +280,10 @@ describe("Authentication API integration tests", () => {
 
       expect(loginResponse.status).toBe(200);
 
-      const token = getSessionToken(loginResponse.headers["set-cookie"]);
+      const token = getSessionToken(
+        loginResponse.headers["set-cookie"],
+      );
+
       const tokenHash = hashSessionToken(token);
 
       const session = await prisma.session.findUnique({

@@ -6,16 +6,59 @@ dotenv.config({
   path: path.resolve(process.cwd(), "../.env"),
 });
 
-const envSchema = z.object({
-  NODE_ENV: z
-    .enum(["development", "test", "production"])
-    .default("development"),
-  BACKEND_PORT: z.coerce.number().int().min(1).max(65535).default(3000),
-  FRONTEND_PORT: z.coerce.number().int().min(1).max(65535).default(5173),
-  FRONTEND_URL: z.string().url().optional(),
-  DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
-  SESSION_COOKIE_NAME: z.string().min(1).default("smartcart_session"),
-});
+const envSchema = z
+  .object({
+    NODE_ENV: z
+      .enum(["development", "test", "production"])
+      .default("development"),
+
+    BACKEND_PORT: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(65535)
+      .default(3000),
+
+    FRONTEND_PORT: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(65535)
+      .default(5173),
+
+    FRONTEND_URL: z.string().url().optional(),
+
+    DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+
+    SESSION_COOKIE_NAME: z
+      .string()
+      .min(1)
+      .default("smartcart_session"),
+  })
+  .superRefine((config, context) => {
+    if (config.NODE_ENV !== "production") {
+      return;
+    }
+
+    if (!config.FRONTEND_URL) {
+      context.addIssue({
+        code: "custom",
+        path: ["FRONTEND_URL"],
+        message: "FRONTEND_URL must be explicitly configured in production.",
+      });
+      return;
+    }
+
+    const frontendUrl = new URL(config.FRONTEND_URL);
+
+    if (frontendUrl.protocol !== "https:") {
+      context.addIssue({
+        code: "custom",
+        path: ["FRONTEND_URL"],
+        message: "FRONTEND_URL must use HTTPS in production.",
+      });
+    }
+  });
 
 const parsedEnv = envSchema.safeParse(process.env);
 
