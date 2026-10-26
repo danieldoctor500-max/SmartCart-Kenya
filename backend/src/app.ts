@@ -7,6 +7,8 @@ import cookieParser from "cookie-parser";
 import { env } from "./config/env.js";
 import healthRouter from "./modules/health/health.routes.js";
 import authRouter from "./modules/auth/auth.routes.js";
+import sellerRouter from "./modules/seller/seller.routes.js";
+import adminRouter from "./modules/admin/admin.routes.js";
 
 const app = express();
 
@@ -38,5 +40,11 @@ app.use("/api/v1/health", healthRouter);
 
 // Authentication endpoints.
 app.use("/api/v1/auth", authRouter);
+
+// Seller application endpoints.
+app.use("/api/v1/seller", sellerRouter);
+
+// Admin endpoints.
+app.use("/api/v1/admin", adminRouter);
 
 export default app;
