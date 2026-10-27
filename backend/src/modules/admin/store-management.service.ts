@@ -1,5 +1,6 @@
 
 import { prisma } from "../../config/database.js";
+import type { ListStoresInput } from "./store-management.schemas.js";
 
 export class StoreManagementError extends Error {
   constructor(
@@ -9,6 +10,79 @@ export class StoreManagementError extends Error {
     super(message);
     this.name = "StoreManagementError";
   }
+}
+
+export async function listStores(input: ListStoresInput) {
+  const skip = (input.page - 1) * input.limit;
+
+  const where = {
+    ...(input.status ? { status: input.status } : {}),
+    ...(input.search
+      ? {
+          OR: [
+            {
+              name: {
+                contains: input.search,
+                mode: "insensitive" as const,
+              },
+            },
+            {
+              slug: {
+                contains: input.search,
+                mode: "insensitive" as const,
+              },
+            },
+          ],
+        }
+      : {}),
+  };
+
+  const [stores, total] = await prisma.$transaction([
+    prisma.store.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      skip,
+      take: input.limit,
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+        sellerProfile: {
+          select: {
+            id: true,
+            businessName: true,
+            applicationStatus: true,
+            phone: true,
+            email: true,
+            user: {
+              select: {
+                id: true,
+                fullName: true,
+                email: true,
+                phone: true,
+                status: true,
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.store.count({ where }),
+  ]);
+
+  return {
+    items: stores,
+    pagination: {
+      page: input.page,
+      limit: input.limit,
+      total,
+      totalPages: Math.ceil(total / input.limit),
+    },
+  };
 }
 
 type StoreTargetStatus = "ACTIVE" | "SUSPENDED";

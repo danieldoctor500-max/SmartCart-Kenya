@@ -1,8 +1,14 @@
+
 import type { RequestHandler } from "express";
 
-import { storeIdSchema } from "./store-management.schemas.js";
+import {
+  listStoresSchema,
+  storeIdSchema,
+} from "./store-management.schemas.js";
+
 import {
   activateStore,
+  listStores,
   StoreManagementError,
   suspendStore,
 } from "./store-management.service.js";
@@ -10,6 +16,38 @@ import {
 function getStoreId(value: unknown) {
   return storeIdSchema.safeParse(value);
 }
+
+export const listStoresController: RequestHandler = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const parsed = listStoresSchema.safeParse(req.query);
+
+    if (!parsed.success) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid store filters.",
+        errors: parsed.error.issues.map((issue) => ({
+          field: issue.path.join("."),
+          message: issue.message,
+        })),
+      });
+      return;
+    }
+
+    const result = await listStores(parsed.data);
+
+    res.status(200).json({
+      success: true,
+      data: result.items,
+      pagination: result.pagination,
+    });
+  } catch (error: unknown) {
+    next(error);
+  }
+};
 
 export const activateStoreController: RequestHandler = async (
   req,
