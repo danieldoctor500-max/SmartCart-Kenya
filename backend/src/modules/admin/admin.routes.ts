@@ -11,10 +11,14 @@ import {
   rejectApplication,
 } from "./seller-review.controller.js";
 
+import storeManagementRouter from "./store-management.routes.js";
+
 const adminRouter = Router();
 
 // All routes below require an authenticated administrator.
 adminRouter.use(requireAuth, requireRole("ADMIN"));
+
+adminRouter.use("/stores", storeManagementRouter);
 
 // List seller applications. Defaults to PENDING.
 adminRouter.get("/seller-applications", listApplications);
