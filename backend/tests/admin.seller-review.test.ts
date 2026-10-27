@@ -173,9 +173,12 @@ describe("Admin seller application review API", () => {
     });
   }
 
-  async function listApplications(cookie?: string) {
+  async function listApplications(
+    cookie?: string,
+    query = "status=PENDING&page=1&limit=10",
+  ) {
     const call = request(app).get(
-      "/api/v1/admin/seller-applications?status=PENDING&page=1&limit=10",
+      `/api/v1/admin/seller-applications?${query}`,
     );
 
     if (cookie) {
@@ -246,6 +249,30 @@ describe("Admin seller application review API", () => {
       totalPages: 1,
     });
   });
+
+  it.each([
+    ["page=0", "page"],
+    ["page=-1", "page"],
+    ["page=10001", "page"],
+    ["page=1.5", "page"],
+    ["limit=0", "limit"],
+    ["limit=101", "limit"],
+  ])(
+    "rejects invalid pagination query %s",
+    async (query, field) => {
+      const cookie = await createSessionCookie(adminUserId);
+
+      const response = await listApplications(cookie, query);
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ field }),
+        ]),
+      );
+    },
+  );
 
   it("rejects approval requests from an untrusted origin", async () => {
     const application = await createPendingApplication();
@@ -414,7 +441,8 @@ describe("Admin seller application review API", () => {
   it("rejects an application and records the reason and audit log", async () => {
     const application = await createPendingApplication();
     const cookie = await createSessionCookie(adminUserId);
-    const reason = "The submitted business information could not be verified.";
+    const reason =
+      "The submitted business information could not be verified.";
 
     const response = await reviewApplication(
       application.id,
