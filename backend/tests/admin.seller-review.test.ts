@@ -1,4 +1,3 @@
-
 import {
   createHash,
   randomBytes,
@@ -179,7 +178,9 @@ describe("Admin seller application review API", () => {
       "/api/v1/admin/seller-applications?status=PENDING&page=1&limit=10",
     );
 
-    if (cookie) call.set("Cookie", cookie);
+    if (cookie) {
+      call.set("Cookie", cookie);
+    }
 
     return call;
   }
@@ -197,7 +198,9 @@ describe("Admin seller application review API", () => {
       .set("Origin", trustedOrigin)
       .set("Cookie", cookie);
 
-    if (body) call.send(body);
+    if (body) {
+      call.send(body);
+    }
 
     return call;
   }
@@ -235,12 +238,40 @@ describe("Admin seller application review API", () => {
         }),
       ]),
     );
+
     expect(response.body.pagination).toMatchObject({
       page: 1,
       limit: 10,
       total: 1,
       totalPages: 1,
     });
+  });
+
+  it("rejects approval requests from an untrusted origin", async () => {
+    const application = await createPendingApplication();
+    const cookie = await createSessionCookie(adminUserId);
+
+    const response = await request(app)
+      .patch(
+        `/api/v1/admin/seller-applications/${application.id}/approve`,
+      )
+      .set("Origin", "https://untrusted.example")
+      .set("Cookie", cookie);
+
+    expect(response.status).toBe(403);
+
+    const savedProfile = await prisma.sellerProfile.findUniqueOrThrow({
+      where: { id: application.id },
+    });
+
+    expect(savedProfile.applicationStatus).toBe("PENDING");
+    expect(savedProfile.reviewedAt).toBeNull();
+
+    expect(
+      await prisma.store.count({
+        where: { sellerProfileId: application.id },
+      }),
+    ).toBe(0);
   });
 
   it("approves an application, grants SELLER, and creates an inactive store", async () => {
@@ -345,6 +376,41 @@ describe("Admin seller application review API", () => {
     expect(savedProfile.reviewedAt).toBeNull();
   });
 
+  it("rejects rejection requests from an untrusted origin", async () => {
+    const application = await createPendingApplication();
+    const cookie = await createSessionCookie(adminUserId);
+
+    const response = await request(app)
+      .patch(
+        `/api/v1/admin/seller-applications/${application.id}/reject`,
+      )
+      .set("Origin", "https://untrusted.example")
+      .set("Cookie", cookie)
+      .send({
+        reason: "The business information could not be verified.",
+      });
+
+    expect(response.status).toBe(403);
+
+    const savedProfile = await prisma.sellerProfile.findUniqueOrThrow({
+      where: { id: application.id },
+    });
+
+    expect(savedProfile.applicationStatus).toBe("PENDING");
+    expect(savedProfile.reviewedAt).toBeNull();
+    expect(savedProfile.rejectionReason).toBeNull();
+
+    expect(
+      await prisma.auditLog.count({
+        where: {
+          actorUserId: adminUserId,
+          resourceId: application.id,
+          action: "SELLER_APPLICATION_REJECTED",
+        },
+      }),
+    ).toBe(0);
+  });
+
   it("rejects an application and records the reason and audit log", async () => {
     const application = await createPendingApplication();
     const cookie = await createSessionCookie(adminUserId);
@@ -381,6 +447,49 @@ describe("Admin seller application review API", () => {
     expect(auditLog?.metadata).toMatchObject({
       rejectionReason: reason,
     });
+  });
+
+  it("prevents a second rejection from overwriting the original reason", async () => {
+    const application = await createPendingApplication();
+    const cookie = await createSessionCookie(adminUserId);
+
+    const originalReason =
+      "The submitted business information could not be verified.";
+
+    const firstResponse = await reviewApplication(
+      application.id,
+      "reject",
+      cookie,
+      { reason: originalReason },
+    );
+
+    expect(firstResponse.status).toBe(200);
+
+    const secondResponse = await reviewApplication(
+      application.id,
+      "reject",
+      cookie,
+      { reason: "Additional review information was received." },
+    );
+
+    expect(secondResponse.status).toBe(409);
+
+    const savedProfile = await prisma.sellerProfile.findUniqueOrThrow({
+      where: { id: application.id },
+    });
+
+    expect(savedProfile.applicationStatus).toBe("REJECTED");
+    expect(savedProfile.rejectionReason).toBe(originalReason);
+
+    expect(
+      await prisma.auditLog.count({
+        where: {
+          actorUserId: adminUserId,
+          resourceId: application.id,
+          action: "SELLER_APPLICATION_REJECTED",
+        },
+      }),
+    ).toBe(1);
   });
 
   it("returns 404 for an application that does not exist", async () => {
