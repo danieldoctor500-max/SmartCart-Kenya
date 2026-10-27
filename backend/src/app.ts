@@ -5,6 +5,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 
 import { env } from "./config/env.js";
+import { errorHandler } from "./middleware/error.middleware.js";
 import healthRouter from "./modules/health/health.routes.js";
 import authRouter from "./modules/auth/auth.routes.js";
 import sellerRouter from "./modules/seller/seller.routes.js";
@@ -46,5 +47,16 @@ app.use("/api/v1/seller", sellerRouter);
 
 // Admin endpoints.
 app.use("/api/v1/admin", adminRouter);
+
+// Consistent JSON response for unknown routes.
+app.use((_req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "The requested resource was not found.",
+  });
+});
+
+// Keep this last so errors from earlier middleware and routes reach it.
+app.use(errorHandler);
 
 export default app;

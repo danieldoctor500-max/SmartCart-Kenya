@@ -71,14 +71,12 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
       sessionId: session.id,
       user: session.user,
     };
-
-    next();
   } catch (error) {
-    console.error("Session validation failed.");
-
-    res.status(500).json({
-      success: false,
-      message: "We could not verify your session. Please try again.",
-    });
+    next(error);
+    return;
   }
+
+  // Keep next() outside the try block so downstream errors
+  // are not caught by this middleware's database error handler.
+  next();
 };
