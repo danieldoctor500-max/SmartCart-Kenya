@@ -10,8 +10,10 @@ import {
   listApplications,
   rejectApplication,
 } from "./seller-review.controller.js";
+import { getDashboardSummary } from "./dashboard-summary.controller.js";
 
 import storeManagementRouter from "./store-management.routes.js";
+import deliveryRatesRouter from "../delivery-rates/delivery-rates.routes.js";
 
 const adminRouter = Router();
 
@@ -19,6 +21,9 @@ const adminRouter = Router();
 adminRouter.use(requireAuth, requireRole("ADMIN"));
 
 adminRouter.use("/stores", storeManagementRouter);
+adminRouter.use("/delivery-rates", deliveryRatesRouter);
+
+adminRouter.get("/dashboard/summary", getDashboardSummary);
 
 // List seller applications. Defaults to PENDING.
 adminRouter.get("/seller-applications", listApplications);

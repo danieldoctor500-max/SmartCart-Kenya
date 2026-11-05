@@ -2,23 +2,25 @@
 import dotenv from "dotenv";
 import path from "node:path";
 
-const rootEnvPath = path.resolve(process.cwd(), "../.env");
+const testEnvPath = path.resolve(process.cwd(), ".env.test");
 
 const result = dotenv.config({
-  path: rootEnvPath,
+  path: testEnvPath,
   override: true,
 });
 
 if (result.error) {
-  throw new Error("Could not load the root .env configuration.");
+  throw new Error("Could not load backend/.env.test.");
 }
 
-process.env.NODE_ENV = "test";
+if (process.env.NODE_ENV !== "test") {
+  throw new Error("backend/.env.test must explicitly set NODE_ENV=test.");
+}
 
 const databaseUrl = process.env.DATABASE_URL;
 
 if (!databaseUrl) {
-  throw new Error("DATABASE_URL is missing from the root .env file.");
+  throw new Error("DATABASE_URL is missing from backend/.env.test.");
 }
 
 let parsedUrl: URL;
@@ -29,17 +31,39 @@ try {
   throw new Error("The root DATABASE_URL is invalid.");
 }
 
-if (parsedUrl.pathname !== "/smartcart_kenya") {
+if (
+  parsedUrl.protocol !== "postgresql:" ||
+  parsedUrl.hostname !== "localhost" ||
+  parsedUrl.port !== "5435" ||
+  parsedUrl.pathname !== "/smartcart_kenya_test" ||
+  parsedUrl.search !== "" ||
+  parsedUrl.hash !== ""
+) {
   throw new Error(
-    "Refusing to derive the test URL from an unexpected database.",
+    "Refusing tests: backend/.env.test must target localhost:5435/smartcart_kenya_test without URL options.",
   );
 }
 
-parsedUrl.pathname = "/smartcart_kenya_test";
-process.env.DATABASE_URL = parsedUrl.toString();
+const { prisma } = await import("../src/config/database.js");
+let identity: Array<{ databaseName: string }>;
 
-if (new URL(process.env.DATABASE_URL).pathname !== "/smartcart_kenya_test") {
-  throw new Error("Test database safety verification failed.");
+try {
+  identity = await prisma.$queryRaw<Array<{ databaseName: string }>>`
+    SELECT current_database() AS "databaseName"
+  `;
+} catch (error) {
+  await prisma.$disconnect();
+  throw error;
 }
 
-console.log("Test environment configured for smartcart_kenya_test.");
+if (
+  identity.length !== 1 ||
+  identity[0]?.databaseName !== "smartcart_kenya_test"
+) {
+  await prisma.$disconnect();
+  throw new Error(
+    "Refusing to run tests: connected database identity is not smartcart_kenya_test.",
+  );
+}
+
+console.log("Test environment verified for smartcart_kenya_test.");

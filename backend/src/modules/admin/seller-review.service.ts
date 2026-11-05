@@ -62,18 +62,41 @@ export async function listSellerApplications(
   input: ListSellerApplicationsInput,
 ) {
   const skip = (input.page - 1) * input.limit;
+  const where: Prisma.SellerProfileWhereInput = {
+    applicationStatus: input.status,
+    ...(input.search
+      ? {
+          OR: [
+            {
+              businessName: {
+                contains: input.search,
+                mode: "insensitive",
+              },
+            },
+            {
+              user: {
+                is: {
+                  fullName: {
+                    contains: input.search,
+                    mode: "insensitive",
+                  },
+                },
+              },
+            },
+          ],
+        }
+      : {}),
+  };
 
   const [applications, total] = await prisma.$transaction([
     prisma.sellerProfile.findMany({
-      where: { applicationStatus: input.status },
+      where,
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       skip,
       take: input.limit,
       select: applicationSelect,
     }),
-    prisma.sellerProfile.count({
-      where: { applicationStatus: input.status },
-    }),
+    prisma.sellerProfile.count({ where }),
   ]);
 
   return {

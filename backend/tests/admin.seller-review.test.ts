@@ -6,6 +6,7 @@ import {
 import request from "supertest";
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -32,6 +33,8 @@ const applicationData = {
 describe("Admin seller application review API", () => {
   let adminUserId: string;
   let applicantUserId: string;
+  const searchUserIds: string[] = [];
+  const searchProfileIds: string[] = [];
 
   beforeAll(async () => {
     await prisma.$queryRaw`SELECT 1`;
@@ -173,6 +176,51 @@ describe("Admin seller application review API", () => {
     });
   }
 
+  async function createSearchApplication(
+    businessName: string,
+    fullName: string,
+    applicationStatus: "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED" = "PENDING",
+  ) {
+    const user = await prisma.user.create({
+      data: {
+        fullName,
+        email: `seller-search-${randomUUID()}@example.com`,
+        passwordHash: "not-used-for-login",
+      },
+      select: { id: true },
+    });
+    searchUserIds.push(user.id);
+
+    const profile = await prisma.sellerProfile.create({
+      data: {
+        userId: user.id,
+        businessName,
+        phone: "0712345678",
+        email: `business-${randomUUID()}@example.com`,
+        applicationStatus,
+      },
+      select: { id: true },
+    });
+    searchProfileIds.push(profile.id);
+    return profile;
+  }
+
+  afterEach(async () => {
+    if (searchProfileIds.length > 0) {
+      await prisma.sellerProfile.deleteMany({
+        where: { id: { in: [...searchProfileIds] } },
+      });
+      searchProfileIds.length = 0;
+    }
+
+    if (searchUserIds.length > 0) {
+      await prisma.user.deleteMany({
+        where: { id: { in: [...searchUserIds] } },
+      });
+      searchUserIds.length = 0;
+    }
+  });
+
   async function listApplications(
     cookie?: string,
     query = "status=PENDING&page=1&limit=10",
@@ -225,6 +273,9 @@ describe("Admin seller application review API", () => {
   });
 
   it("lists pending applications with pagination", async () => {
+    const pendingCountBefore = await prisma.sellerProfile.count({
+      where: { applicationStatus: "PENDING" },
+    });
     const application = await createPendingApplication();
     const cookie = await createSessionCookie(adminUserId);
 
@@ -245,9 +296,131 @@ describe("Admin seller application review API", () => {
     expect(response.body.pagination).toMatchObject({
       page: 1,
       limit: 10,
+      total: pendingCountBefore + 1,
+      totalPages: Math.ceil((pendingCountBefore + 1) / 10),
+    });
+  });
+
+  it("searches business names case-insensitively and trims the query", async () => {
+    const token = randomUUID().replaceAll("-", "");
+    const application = await createSearchApplication(
+      `Checkpoint Business ${token}`,
+      `Seller ${token}`,
+    );
+    const cookie = await createSessionCookie(adminUserId);
+
+    const response = await listApplications(
+      cookie,
+      `status=PENDING&search=${encodeURIComponent(`  checkpoint business ${token}  `)}`,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.map((item: { id: string }) => item.id))
+      .toEqual([application.id]);
+    expect(response.body.pagination).toMatchObject({
       total: 1,
       totalPages: 1,
     });
+  });
+
+  it("searches applicant full names without searching contact fields", async () => {
+    const token = randomUUID().replaceAll("-", "");
+    const application = await createSearchApplication(
+      `Business ${token}`,
+      `ApplicantSearch${token}`,
+    );
+    const cookie = await createSessionCookie(adminUserId);
+
+    const nameResponse = await listApplications(
+      cookie,
+      `status=PENDING&search=${encodeURIComponent(`applicantsearch${token}`)}`,
+    );
+    expect(nameResponse.status).toBe(200);
+    expect(nameResponse.body.data.map((item: { id: string }) => item.id))
+      .toEqual([application.id]);
+
+    const emailResponse = await listApplications(
+      cookie,
+      `status=PENDING&search=${encodeURIComponent("seller-search-")}`,
+    );
+    expect(emailResponse.status).toBe(200);
+    expect(emailResponse.body.data).toEqual([]);
+  });
+
+  it("combines search and status before paginating and counts only matches", async () => {
+    const token = randomUUID().replaceAll("-", "");
+    const first = await createSearchApplication(`PageSearch${token} one`, "First");
+    const second = await createSearchApplication(`PageSearch${token} two`, "Second");
+    await createSearchApplication(
+      `PageSearch${token} rejected`,
+      "Rejected",
+      "REJECTED",
+    );
+    const cookie = await createSessionCookie(adminUserId);
+
+    const response = await listApplications(
+      cookie,
+      `status=PENDING&search=${token}&page=2&limit=1`,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toHaveLength(1);
+    expect([first.id, second.id]).toContain(response.body.data[0].id);
+    expect(response.body.pagination).toEqual({
+      page: 2,
+      limit: 1,
+      total: 2,
+      totalPages: 2,
+    });
+  });
+
+  it("returns no rows and zero pages for an unmatched search", async () => {
+    const cookie = await createSessionCookie(adminUserId);
+
+    const response = await listApplications(
+      cookie,
+      `status=PENDING&search=${randomUUID()}`,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toEqual([]);
+    expect(response.body.pagination).toMatchObject({
+      total: 0,
+      totalPages: 0,
+    });
+  });
+
+  it("treats omitted and whitespace-only searches as no filter", async () => {
+    const cookie = await createSessionCookie(adminUserId);
+    const omittedResponse = await listApplications(cookie);
+    const whitespaceResponse = await listApplications(
+      cookie,
+      "status=PENDING&page=1&limit=10&search=%20%20%20",
+    );
+
+    expect(omittedResponse.status).toBe(200);
+    expect(whitespaceResponse.status).toBe(200);
+    expect(whitespaceResponse.body.pagination.total)
+      .toBe(omittedResponse.body.pagination.total);
+    expect(whitespaceResponse.body.data.map((item: { id: string }) => item.id))
+      .toEqual(omittedResponse.body.data.map((item: { id: string }) => item.id));
+  });
+
+  it("rejects search values longer than 100 characters", async () => {
+    const cookie = await createSessionCookie(adminUserId);
+
+    const response = await listApplications(
+      cookie,
+      `status=PENDING&search=${"a".repeat(101)}`,
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.body.success).toBe(false);
+    expect(response.body.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: "search" }),
+      ]),
+    );
   });
 
   it.each([

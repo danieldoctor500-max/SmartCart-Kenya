@@ -1,6 +1,8 @@
 import { env } from "./config/env.js";
 import app from "./app.js";
 import { prisma } from "./config/database.js";
+import { releaseExpiredReservations } from "./modules/checkout/checkout.service.js";
+import { createReservationReleaseWorker } from "./modules/checkout/reservation-release-worker.js";
 
 const server = app.listen(env.PORT, () => {
   console.log(
@@ -8,11 +10,19 @@ const server = app.listen(env.PORT, () => {
   );
 });
 
+const runReservationRelease = createReservationReleaseWorker(
+  releaseExpiredReservations,
+);
+const reservationReleaseTimer = setInterval(() => {
+  void runReservationRelease();
+}, 60_000);
+
 let shuttingDown = false;
 
 async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
+  clearInterval(reservationReleaseTimer);
 
   console.log(`${signal} received. Shutting down gracefully.`);
 

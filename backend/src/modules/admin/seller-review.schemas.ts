@@ -6,6 +6,10 @@ export const listSellerApplicationsSchema = z.object({
     .default("PENDING"),
   page: z.coerce.number().int().min(1).max(10000).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.preprocess(
+    (value) => typeof value === "string" ? value.trim() || undefined : value,
+    z.string().max(100, "Search cannot exceed 100 characters.").optional(),
+  ),
 }).strict();
 
 export const rejectSellerApplicationSchema = z.object({

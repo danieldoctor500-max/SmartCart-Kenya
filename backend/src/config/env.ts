@@ -2,9 +2,11 @@ import dotenv from "dotenv";
 import path from "node:path";
 import { z } from "zod";
 
-dotenv.config({
-  path: path.resolve(process.cwd(), "../.env"),
-});
+if (process.env.SMARTCART_BROWSER_TEST !== "1") {
+  dotenv.config({
+    path: path.resolve(process.cwd(), "../.env"),
+  });
+}
 
 const envSchema = z
   .object({
@@ -34,6 +36,25 @@ const envSchema = z
       .string()
       .min(1)
       .default("smartcart_session"),
+
+    MPESA_ENVIRONMENT: z.enum(["sandbox"]).default("sandbox"),
+    MPESA_CONSUMER_KEY: z
+      .string()
+      .refine((value) => value.trim().length > 0, "MPESA_CONSUMER_KEY cannot be empty.")
+      .optional(),
+    MPESA_CONSUMER_SECRET: z
+      .string()
+      .refine((value) => value.trim().length > 0, "MPESA_CONSUMER_SECRET cannot be empty.")
+      .optional(),
+    MPESA_SHORTCODE: z
+      .string()
+      .refine((value) => value.trim().length > 0, "MPESA_SHORTCODE cannot be empty.")
+      .optional(),
+    MPESA_PASSKEY: z
+      .string()
+      .refine((value) => value.trim().length > 0, "MPESA_PASSKEY cannot be empty.")
+      .optional(),
+    MPESA_CALLBACK_URL: z.string().url().optional(),
   })
   .superRefine((config, context) => {
     if (config.NODE_ENV !== "production") {
@@ -60,7 +81,10 @@ const envSchema = z
     }
   });
 
-const parsedEnv = envSchema.safeParse(process.env);
+const parsedEnv = envSchema.safeParse({
+  ...process.env,
+  BACKEND_PORT: process.env.PORT ?? process.env.BACKEND_PORT,
+});
 
 if (!parsedEnv.success) {
   console.error("Environment configuration is invalid.");

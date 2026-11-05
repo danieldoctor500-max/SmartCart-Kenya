@@ -3,7 +3,11 @@ import argon2 from "argon2";
 import { createHash, randomBytes } from "node:crypto";
 
 import { prisma } from "../../config/database.js";
-import type { LoginInput, RegisterInput } from "./auth.schemas.js";
+import type {
+  LoginInput,
+  RegisterInput,
+  UpdateProfileInput,
+} from "./auth.schemas.js";
 
 export class AuthServiceError extends Error {
   constructor(
@@ -124,4 +128,27 @@ export async function loginCustomer(
     token,
     expiresAt,
   };
+}
+
+export async function updateUserProfile(
+  userId: string,
+  input: UpdateProfileInput,
+) {
+  return prisma.user.update({
+    where: { id: userId },
+    data: {
+      ...(input.fullName === undefined ? {} : { fullName: input.fullName }),
+      ...(input.phone === undefined ? {} : { phone: input.phone }),
+    },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      phone: true,
+      status: true,
+      roles: {
+        select: { role: true },
+      },
+    },
+  });
 }

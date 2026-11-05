@@ -43,5 +43,6 @@ tmp/
 temp/
 backend/.env.test
 # Local migration backups — retain locally, exclude from Git
+backend/.browser-test-fixtures/
 /migration-backup-*/
 /migration-old-*/

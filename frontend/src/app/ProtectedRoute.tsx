@@ -1,9 +1,11 @@
 
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../features/auth/auth.hooks";
+import type { UserRole } from "../features/auth/auth.types";
+import { getDefaultWorkspacePath } from "./workspaces";
 
 interface ProtectedRouteProps {
-  allowedRoles?: string[];
+  allowedRoles?: UserRole[];
 }
 
 export function ProtectedRoute({
@@ -30,7 +32,13 @@ export function ProtectedRoute({
     allowedRoles &&
     !user.roles.some(({ role }) => allowedRoles.includes(role))
   ) {
-    return <Navigate to="/" replace />;
+    return (
+      <Navigate
+        to={getDefaultWorkspacePath(user.roles)}
+        replace
+        state={{ from: location }}
+      />
+    );
   }
 
   return <Outlet />;

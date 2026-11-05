@@ -32,6 +32,30 @@ export async function listStores(input: ListStoresInput) {
                 mode: "insensitive" as const,
               },
             },
+            {
+              sellerProfile: {
+                is: {
+                  businessName: {
+                    contains: input.search,
+                    mode: "insensitive" as const,
+                  },
+                },
+              },
+            },
+            {
+              sellerProfile: {
+                is: {
+                  user: {
+                    is: {
+                      fullName: {
+                        contains: input.search,
+                        mode: "insensitive" as const,
+                      },
+                    },
+                  },
+                },
+              },
+            },
           ],
         }
       : {}),

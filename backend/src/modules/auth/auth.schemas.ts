@@ -27,5 +27,16 @@ export const loginSchema = z
   })
   .strict();
 
+export const updateProfileSchema = z
+  .object({
+    fullName: z.string().trim().min(2).max(100).optional(),
+    phone: z.string().trim().min(7).max(30).nullable().optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "Provide at least one profile field to update.",
+  });
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;

@@ -16,6 +16,11 @@ export interface AuthUser {
   }>;
 }
 
+export interface ProfileUpdateInput {
+  fullName?: string;
+  phone?: string | null;
+}
+
 export interface AuthResponse {
   success: boolean;
   message: string;

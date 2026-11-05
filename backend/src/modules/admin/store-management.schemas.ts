@@ -16,7 +16,12 @@ export const listStoresSchema = z
     status: z
       .enum(["INACTIVE", "ACTIVE", "SUSPENDED"])
       .optional(),
-    search: z.string().trim().min(1).max(100).optional(),
+    search: z.preprocess(
+      (value) => typeof value === "string" && value.trim() === ""
+        ? undefined
+        : value,
+      z.string().trim().min(1).max(100).optional(),
+    ),
   })
   .strict();
 

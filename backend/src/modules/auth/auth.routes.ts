@@ -6,6 +6,7 @@ import {
   login,
   logout,
   register,
+  updateCurrentUser,
 } from "./auth.controller.js";
 import { requireAuth } from "./auth.middleware.js";
 import { requireTrustedOrigin } from "./origin.middleware.js";
@@ -31,6 +32,12 @@ authRouter.post(
 );
 
 authRouter.get("/me", requireAuth, currentUser);
+authRouter.patch(
+  "/me",
+  requireTrustedOrigin,
+  requireAuth,
+  updateCurrentUser,
+);
 
 authRouter.post("/logout", requireTrustedOrigin, logout);
 

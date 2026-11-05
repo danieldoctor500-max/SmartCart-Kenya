@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/package",
   "name": "backend",
   "version": "1.0.0",
   "description": "",
@@ -9,12 +10,19 @@
   "scripts": {
     "test": "vitest run",
     "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "prisma generate && tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "db:format": "prisma format",
     "db:validate": "prisma validate",
     "db:generate": "prisma generate",
+    "db:seed": "tsx prisma/seed.ts",
+    "admin:provision": "tsx scripts/provision-dev-admin.ts",
+    "admin:promote": "tsx scripts/promote-dev-admin.ts",
+    "admin:password-reset": "tsx scripts/reset-dev-admin-password.ts",
+    "browser-test:backend": "tsx scripts/browser-test-backend.ts",
+    "browser-test:fixtures": "tsx scripts/prepare-browser-test-fixtures.ts",
+    "browser-test:migrate": "tsx scripts/migrate-browser-test.ts",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio"
   },

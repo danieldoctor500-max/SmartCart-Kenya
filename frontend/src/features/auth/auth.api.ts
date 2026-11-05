@@ -2,6 +2,7 @@ import { api } from "../../lib/api";
 import type {
   AuthResponse,
   AuthUser,
+  ProfileUpdateInput,
 } from "./auth.types";
 
 interface RegistrationInput {
@@ -23,14 +24,19 @@ interface CurrentUserResponse {
   };
 }
 
+interface RegistrationResponse {
+  success: boolean;
+  message: string;
+}
+
 interface LogoutResponse {
   success: boolean;
   message: string;
 }
 
 export const authApi = {
-  async register(input: RegistrationInput): Promise<AuthResponse> {
-    const response = await api.post<AuthResponse>(
+  async register(input: RegistrationInput): Promise<RegistrationResponse> {
+    const response = await api.post<RegistrationResponse>(
       "/auth/register",
       input,
     );
@@ -52,6 +58,14 @@ export const authApi = {
       "/auth/me",
     );
 
+    return response.data.data.user;
+  },
+
+  async updateProfile(input: ProfileUpdateInput): Promise<AuthUser> {
+    const response = await api.patch<CurrentUserResponse>(
+      "/auth/me",
+      input,
+    );
     return response.data.data.user;
   },
 

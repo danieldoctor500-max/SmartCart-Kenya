@@ -1,17 +1,25 @@
 
-import type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import { createHash } from "node:crypto";
 
 import { env } from "../../config/env.js";
 import { prisma } from "../../config/database.js";
-import { loginSchema, registerSchema } from "./auth.schemas.js";
+import {
+  loginSchema,
+  registerSchema,
+  updateProfileSchema,
+} from "./auth.schemas.js";
+import { mergeGuestCart } from "../cart/cart.service.js";
 import {
   AuthServiceError,
   loginCustomer,
   registerCustomer,
+  updateUserProfile,
 } from "./auth.service.js";
 
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+const registrationAcknowledgementMessage =
+  "If you have an account with this email, you can sign in.";
 
 const sessionCookieOptions = {
   httpOnly: true,
@@ -27,6 +35,13 @@ const clearSessionCookieOptions = {
   sameSite: "lax" as const,
   path: "/",
 };
+
+function sendRegistrationAcknowledgement(res: Response): void {
+  res.status(202).json({
+    success: true,
+    message: registrationAcknowledgementMessage,
+  });
+}
 
 /**
  * Register a new customer account.
@@ -48,15 +63,15 @@ export async function register(
   }
 
   try {
-    const user = await registerCustomer(parsed.data);
-
-    res.status(201).json({
-      success: true,
-      message: "Your SmartCart Kenya account has been created.",
-      data: { user },
-    });
+    await registerCustomer(parsed.data);
+    sendRegistrationAcknowledgement(res);
   } catch (error: unknown) {
     if (error instanceof AuthServiceError) {
+      if (error.statusCode === 409) {
+        sendRegistrationAcknowledgement(res);
+        return;
+      }
+
       res.status(error.statusCode).json({
         success: false,
         message: error.message,
@@ -98,11 +113,57 @@ export async function login(
       ipAddress: req.ip ?? null,
     });
 
+    const guestCookieName = "smartcart_guest";
+    const guestSessionId: unknown = req.cookies?.[guestCookieName];
+
+    let cartMerge = null;
+
+    if (
+      typeof guestSessionId === "string" &&
+      /^[a-zA-Z0-9_-]{32,128}$/.test(guestSessionId)
+    ) {
+      try {
+        cartMerge = await mergeGuestCart(
+          result.user.id,
+          guestSessionId,
+        );
+      } catch {
+        const tokenHash = createHash("sha256")
+          .update(result.token)
+          .digest("hex");
+
+        await prisma.session.deleteMany({
+          where: { tokenHash },
+        });
+
+        console.error(
+          "Login was not completed because guest-cart merging failed.",
+        );
+
+        res.status(500).json({
+          success: false,
+          message:
+            "We could not safely merge your cart. Your guest cart has been preserved; please try logging in again.",
+        });
+        return;
+      }
+    }
+
     res.cookie(
       env.SESSION_COOKIE_NAME,
       result.token,
       sessionCookieOptions,
     );
+
+    if (
+      typeof guestSessionId === "string" &&
+      /^[a-zA-Z0-9_-]{32,128}$/.test(guestSessionId)
+    ) {
+      res.clearCookie(
+        guestCookieName,
+        clearSessionCookieOptions,
+      );
+    }
 
     res.status(200).json({
       success: true,
@@ -110,6 +171,7 @@ export async function login(
       data: {
         user: result.user,
         expiresAt: result.expiresAt,
+        cartMerge,
       },
     });
   } catch (error: unknown) {
@@ -159,6 +221,47 @@ export async function currentUser(
 }
 
 /**
+ * Update editable fields on the authenticated user's profile.
+ * PATCH /api/v1/auth/me
+ */
+export async function updateCurrentUser(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const auth = res.locals.auth;
+
+  if (!auth?.user) {
+    res.status(401).json({
+      success: false,
+      message: "Authentication is required.",
+    });
+    return;
+  }
+
+  const parsed = updateProfileSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    res.status(400).json({
+      success: false,
+      message: "Please check the profile details.",
+      errors: parsed.error.flatten().fieldErrors,
+    });
+    return;
+  }
+
+  try {
+    const user = await updateUserProfile(auth.user.id, parsed.data);
+    res.status(200).json({
+      success: true,
+      data: { user },
+    });
+  } catch (error: unknown) {
+    next(error);
+  }
+}
+
+/**
  * Revoke the current server-side session and clear its cookie.
  * POST /api/v1/auth/logout
  */
@@ -181,6 +284,11 @@ export async function logout(
 
     res.clearCookie(
       env.SESSION_COOKIE_NAME,
+      clearSessionCookieOptions,
+    );
+
+    res.clearCookie(
+      "smartcart_guest",
       clearSessionCookieOptions,
     );
 

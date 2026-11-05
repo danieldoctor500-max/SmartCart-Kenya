@@ -9,7 +9,7 @@ import {
 
 import { authApi } from "./auth.api";
 import type { LoginInput } from "./auth.api";
-import type { AuthUser } from "./auth.types";
+import type { AuthUser, ProfileUpdateInput } from "./auth.types";
 import {
   AuthContext,
   type AuthContextValue,
@@ -73,6 +73,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [],
   );
 
+  const updateProfile = useCallback(
+    async (input: ProfileUpdateInput): Promise<AuthUser> => {
+      const updatedUser = await authApi.updateProfile(input);
+      setUser(updatedUser);
+      return updatedUser;
+    },
+    [],
+  );
+
   const logout = useCallback(async (): Promise<void> => {
     try {
       await authApi.logout();
@@ -88,9 +97,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isAuthenticated: user !== null,
       refreshUser,
       login,
+      updateProfile,
       logout,
     }),
-    [user, isLoading, refreshUser, login, logout],
+    [user, isLoading, refreshUser, login, updateProfile, logout],
   );
 
   return (

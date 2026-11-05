@@ -1,10 +1,11 @@
-import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useEffect, useState, type FormEvent } from "react";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { useState, type FormEvent } from "react";
 import axios from "axios";
 import { useAuth } from "./auth.hooks";
+import { getDefaultWorkspacePath } from "../../app/workspaces";
 
 export function LoginPage() {
-  const { login, isLoading, isAuthenticated } = useAuth();
+  const { login, isLoading, isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState("");
@@ -12,12 +13,27 @@ export function LoginPage() {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const destination = (
-    location.state as { from?: { pathname?: string } } | null
-  )?.from?.pathname;
+  const intendedLocation = (
+    location.state as {
+      from?: { pathname?: string; search?: string; hash?: string };
+    } | null
+  )?.from;
+  const intendedPath =
+    intendedLocation?.pathname &&
+    intendedLocation.pathname.startsWith("/") &&
+    !intendedLocation.pathname.startsWith("//") &&
+    intendedLocation.pathname !== "/login" &&
+    intendedLocation.pathname !== "/register"
+      ? `${intendedLocation.pathname}${intendedLocation.search ?? ""}${intendedLocation.hash ?? ""}`
+      : null;
 
   if (!isLoading && isAuthenticated) {
-    return <NavigateToAccount />;
+    return (
+      <Navigate
+        to={intendedPath ?? getDefaultWorkspacePath(user?.roles ?? [])}
+        replace
+      />
+    );
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -26,8 +42,11 @@ export function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      await login({ email, password });
-      navigate(destination || "/account", { replace: true });
+      const loggedInUser = await login({ email, password });
+      navigate(
+        intendedPath ?? getDefaultWorkspacePath(loggedInUser.roles),
+        { replace: true },
+      );
     } catch (caughtError: unknown) {
       const message = axios.isAxiosError(caughtError)
         ? caughtError.response?.data?.message
@@ -86,14 +105,4 @@ export function LoginPage() {
       </div>
     </section>
   );
-}
-
-function NavigateToAccount() {
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    navigate("/account", { replace: true });
-  }, [navigate]);
-
-  return <p className="route-loading">Redirecting to your account...</p>;
 }
