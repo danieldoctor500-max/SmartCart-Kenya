@@ -1,4 +1,6 @@
 
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
@@ -17,6 +19,23 @@ import ordersRouter from "./modules/orders/orders.routes.js";
 import accountRouter from "./modules/account/account.routes.js";
 
 const app = express();
+const frontendDistPath = fileURLToPath(
+  new URL("../../frontend/dist/", import.meta.url),
+);
+const frontendIndexPath = fileURLToPath(
+  new URL("../../frontend/dist/index.html", import.meta.url),
+);
+const frontendBuildAvailable = existsSync(frontendIndexPath);
+const frontendStatic = frontendBuildAvailable
+  ? express.static(frontendDistPath, {
+      dotfiles: "deny",
+      index: false,
+    })
+  : undefined;
+
+function isApiRequest(pathname: string): boolean {
+  return pathname === "/api" || pathname.startsWith("/api/");
+}
 
 app.disable("x-powered-by");
 
@@ -24,7 +43,7 @@ app.use(helmet());
 
 app.use(
   cors({
-    origin: env.FRONTEND_URL,
+    origin: new URL(env.FRONTEND_URL).origin,
     credentials: true,
   }),
 );
@@ -63,6 +82,82 @@ app.use("/api/v1/seller", sellerRouter);
 
 // Admin endpoints.
 app.use("/api/v1/admin", adminRouter);
+
+// Keep API paths out of the frontend static file server.
+app.use((req, res, next) => {
+  if (isApiRequest(req.path) || !frontendStatic) {
+    next();
+    return;
+  }
+
+  let decodedPath: string;
+  try {
+    decodedPath = decodeURIComponent(req.path);
+  } catch (error) {
+    next(error);
+    return;
+  }
+
+  const pathSegments = decodedPath.split("/");
+  if (
+    pathSegments.some(
+      (segment) =>
+        segment.toLowerCase().endsWith(".map") ||
+        /^\.env(?:$|\.)/i.test(segment),
+    )
+  ) {
+    res.sendStatus(404);
+    return;
+  }
+
+  frontendStatic(req, res, next);
+});
+
+// Serve the SPA for frontend navigation requests only.
+app.use((req, res, next) => {
+  if (isApiRequest(req.path)) {
+    next();
+    return;
+  }
+
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    next();
+    return;
+  }
+
+  let decodedPath: string;
+  try {
+    decodedPath = decodeURIComponent(req.path);
+  } catch (error) {
+    next(error);
+    return;
+  }
+
+  const acceptHeader = req.get("accept");
+  const explicitlyAcceptsHtml = acceptHeader
+    ?.split(",")
+    .some(
+      (mediaType) =>
+        mediaType.split(";")[0].trim().toLowerCase() === "text/html",
+    );
+  const hasFileExtension = decodedPath
+    .split("/")
+    .some((segment) => segment.includes("."));
+
+  if (!explicitlyAcceptsHtml || !req.accepts("html") || hasFileExtension) {
+    next();
+    return;
+  }
+
+  if (!frontendBuildAvailable) {
+    res.status(503).type("text/plain").send("Frontend build is unavailable.");
+    return;
+  }
+
+  res.sendFile(frontendIndexPath, (error) => {
+    if (error) next(error);
+  });
+});
 
 // Consistent JSON response for unknown routes.
 app.use((_req, res) => {

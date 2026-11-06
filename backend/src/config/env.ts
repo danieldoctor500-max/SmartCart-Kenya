@@ -70,13 +70,38 @@ const envSchema = z
       return;
     }
 
-    const frontendUrl = new URL(config.FRONTEND_URL);
+    let frontendUrl: URL;
+    try {
+      frontendUrl = new URL(config.FRONTEND_URL);
+    } catch {
+      context.addIssue({
+        code: "custom",
+        path: ["FRONTEND_URL"],
+        message: "FRONTEND_URL must be a valid HTTPS origin.",
+      });
+      return;
+    }
 
     if (frontendUrl.protocol !== "https:") {
       context.addIssue({
         code: "custom",
         path: ["FRONTEND_URL"],
         message: "FRONTEND_URL must use HTTPS in production.",
+      });
+    }
+
+    if (
+      frontendUrl.pathname !== "/" ||
+      config.FRONTEND_URL.includes("?") ||
+      config.FRONTEND_URL.includes("#") ||
+      frontendUrl.username !== "" ||
+      frontendUrl.password !== ""
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["FRONTEND_URL"],
+        message:
+          "FRONTEND_URL must be an origin without a path, query, fragment, or credentials.",
       });
     }
   });

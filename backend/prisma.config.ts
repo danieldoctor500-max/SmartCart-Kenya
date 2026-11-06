@@ -8,12 +8,17 @@ if (process.env.SMARTCART_BROWSER_TEST !== "1") {
   });
 }
 
+const datasourceUrl =
+  process.env.DIRECT_URL !== undefined
+    ? env("DIRECT_URL")
+    : env("DATABASE_URL");
+
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations"
   },
   datasource: {
-    url: env("DATABASE_URL")
+    url: datasourceUrl
   }
 });
